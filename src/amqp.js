@@ -7,15 +7,17 @@ var Readable = require('stream').Readable;
 var Writable = require('stream').Writable;
 var amqplib = require('amqplib');
 
-module.exports = Chronicon;
+module.exports = AmqpStore;
 
-function Chronicon(exchange, connection){
-	if(!(this instanceof Chronicon)){
-		return new Chronicon(exchange, connection);
+function AmqpStore(options){
+	if(!(this instanceof AmqpStore)){
+		return new AmqpStore(exchange, connection);
 	}
-
+	this.options = options || {};
+	var exchange = options.exchange;
+	var connection = options.connection;
 	this.exchange = exchange || 'amqpstream';
-	this.connectionPromise = typeof connection === 'string'? Chronicon.connect(connection) : connection;
+	this.connectionPromise = typeof connection === 'string'? this.connect(connection) : connection;
 
 	var self = this;
 
@@ -37,13 +39,13 @@ function Chronicon(exchange, connection){
 	}).done();
 }
 
-util.inherits(Chronicon, EventEmitter);
+util.inherits(AmqpStore, EventEmitter);
 
-Chronicon.connect = function(amqpUrl){
+AmqpStore.prototype.connect = function(amqpUrl){
 	return amqplib.connect(amqpUrl);
 };
 
-Chronicon.prototype.read = function(topics){
+AmqpStore.prototype.read = function(topics){
 	var self = this;
 
 	if(!topics){
@@ -80,10 +82,11 @@ Chronicon.prototype.read = function(topics){
 			})
 			.then(function(){
 				self.channel.consume(stream._amqpQueue, function(msg){
-					stream.push({
-						topic: msg.fields.routingKey,
-						payload: JSON.parse(msg.content)
-					});
+					stream.push(JSON.parse(msg.content));
+					//stream.push({
+					//	topic: msg.fields.routingKey,
+					//	payload: JSON.parse(msg.content)
+					//});
 					self.channel.ack(msg);
 				});
 			})
@@ -95,7 +98,7 @@ Chronicon.prototype.read = function(topics){
 	return stream;
 };
 
-Chronicon.prototype.writable = function(topic){
+AmqpStore.prototype.writable = function(topic){
 	var self = this;
 
 	var stream = new Writable({objectMode:true});
@@ -115,7 +118,7 @@ Chronicon.prototype.writable = function(topic){
 	return stream;
 };
 
-Chronicon.prototype.write = function(topic, payload){
+AmqpStore.prototype.write = function(topic, payload){
 	var self = this;
 	self.writable(topic).end(payload);
 };

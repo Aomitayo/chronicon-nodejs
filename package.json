@@ -2,9 +2,15 @@
   "name": "chronicon",
   "version": "0.0.2",
   "description": "Nodejs bindings to the chronicon framework",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "envsetup": "./build/env-setup.sh",
+    "envteardown": "./build/env-teardown.sh",
+    "test": "./build/test.sh",
+    "watch-src": "watch 'npm run -s test' src/ --ignoreDotFiles",
+    "watch-test": "watch 'npm run -s test' test/ --ignoreDotFiles",
+    "dev": "concurrently -r 'npm run watch-src' 'npm run watch-test'",
+    "predev": "npm run -s envsetup"
   },
   "repository": {
     "type": "git",
@@ -23,6 +29,17 @@
   },
   "homepage": "https://github.com/Aomitayo/chronicon-nodejs",
   "dependencies": {
-    "amqplib": "^0.4.1"
+    "amqplib": "^0.4.1",
+    "rethinkdb": "^2.2.2"
+  },
+  "devDependencies": {
+    "async": "^1.5.2",
+    "chai": "^3.5.0",
+    "concurrently": "^2.0.0",
+    "lodash": "^4.6.1",
+    "mocha": "^2.4.5",
+    "sinon": "^1.17.3",
+    "sinon-chai": "^2.8.0",
+    "watch": "^0.17.1"
   }
 }
