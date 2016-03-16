@@ -11,7 +11,7 @@ module.exports = AmqpStore;
 
 function AmqpStore(options){
 	if(!(this instanceof AmqpStore)){
-		return new AmqpStore(exchange, connection);
+		return new AmqpStore(options);
 	}
 	this.options = options || {};
 	var exchange = options.exchange;

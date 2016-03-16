@@ -1,47 +1,71 @@
 var chai = require('chai');
 var sinon = require('sinon');
 var sinonChai = require('sinon-chai');
-var amqplib = require('amqplib');
+var r = require('rethinkdb');
 var Chronicon = require('../..');
 var expect = chai.expect;
 chai.use(sinonChai);
 
+var url = require('url');
 var _ = require('lodash');
 var async = require('async');
 
-var amqpUrl = process.env.AMQP_URL;
+var rethinkdbUrl = process.env.RETHINKDB_URL;
 
-describe('AMQP Store', function(){
-	before(function(){
+function tableName(topic){
+	return (topic || '').replace(/\./g, '_');
+}
+
+describe('Rethinkdb Store', function(){
+	before(function(done){
 		var ctx = this;
-		ctx.exchange = 'chronicon-test';
-		ctx.chronicon  = new Chronicon('amqp', {
-			connection: amqpUrl,
-			exchange: ctx.exchange
+		var urlParts = url.parse(rethinkdbUrl);
+		ctx.rethinkdbOptions = _.extend({
+			db: (urlParts.pathname || '').replace(/^\//, '') || 'chronicon_test',
+			url: rethinkdbUrl
+		}, {
+			host: urlParts.hostname,
+			port: urlParts.port,
 		});
+		ctx.chronicon  = new Chronicon('rethinkdb', ctx.rethinkdbOptions);
+		if(ctx.chronicon.isReady){
+			done();
+		}
+		else{
+			ctx.chronicon.on('ready', function(){
+				done();
+			});
+		}
 	});
 	
 	before(function(done){
 		var ctx = this;
-
-		amqplib.connect(amqpUrl)
+		r.connect(ctx.rethinkdbOptions)
 		.then(function(conn){
 			ctx.connection = conn;
-			return conn.createConfirmChannel();
-		})
-		.then(function(ch){
-			ctx.channel = ch;
-			return ch.assertExchange(ctx.exchange, 'topic', {durable:false});
 		})
 		.then(function(){
-			done();
+			return r.dbCreate(ctx.rethinkdbOptions.db).run(ctx.connection)
+				.catch(function(){
+					return;
+				});
+		})
+		.then(function(){
+			return r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
+				.catch(function(){return;});
+		})
+		.then(function(){
+			return done();
+		})
+		.catch(function(err){
+			return done(err);
 		});
 	});
-
-	after(function(){
+	
+	after(function(done){
 		var ctx = this;
 		if(ctx.connection){
-			ctx.connection.close();
+			ctx.connection.close(done);
 		}
 	});
 
@@ -49,9 +73,31 @@ describe('AMQP Store', function(){
 		before(function(){
 			var ctx = this;
 			ctx.topic = 'chronicon.test.read';
+			ctx.topicWrong = 'chronicon.test.read.not';
+		});
+
+		before(function(done){
+			var ctx = this;
+			r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
+				.catch(function(){return;})
+				.finally(function(){
+					return r.tableCreate(tableName(ctx.topicWrong)).run(ctx.connection);
+				})
+				.catch(function(){return;})
+				.finally(done)
+				.done();
+		});
+
+		before(function(){
+			var ctx = this;
 			ctx.stream = ctx.chronicon.read(ctx.topic);
 			ctx.streamSpy = sinon.spy();
 			ctx.stream.on('data', ctx.streamSpy);
+		});
+		
+		beforeEach(function(done){
+			var ctx = this;
+			r.table(tableName(ctx.topic)).delete().run(ctx.connection, done);
 		});
 
 		beforeEach(function(){
@@ -74,19 +120,17 @@ describe('AMQP Store', function(){
 
 		it('Stream reads as many entries as are published on topic', function(done){
 			var ctx = this;
-
-			async.timesSeries(_.random(1, 10), function(n, next){
+			var numEntries = _.random(1, 10);
+			async.timesSeries(numEntries, function(n, next){
 				var payload = {
 					sequenceNumber: n,
 					testAttr: 'test'
 				};
-				ctx.channel.publish(ctx.exchange, ctx.topic, new Buffer(JSON.stringify(payload)), {}, function(err){
-					if(err){
-						next(err);
-					}
-					else{
-						next(null, payload);
-					}
+
+				r.table(tableName(ctx.topic)).insert(payload).run(ctx.connection, function(err){
+					setTimeout(function(){
+						next(err, payload);
+					}, 100);
 				});
 				
 			}, function(err, results){
@@ -101,7 +145,7 @@ describe('AMQP Store', function(){
 						expect(ctx.streamSpy.args[index][0]).to.have.property('testAttr', 'test');
 					});
 					done();
-				}, 2000);
+				},100);
 			});
 		});
 
@@ -113,7 +157,8 @@ describe('AMQP Store', function(){
 					sequenceNumber: n,
 					testAttr: 'test'
 				};
-				ctx.channel.publish(ctx.exchange, ctx.topic +'.not', new Buffer(JSON.stringify(payload)), {}, function(err){
+
+				r.table(tableName(ctx.topic + '.not')).insert(payload).run(ctx.connection, function(err){
 					if(err){
 						next(err);
 					}
@@ -136,31 +181,50 @@ describe('AMQP Store', function(){
 	});
 
 	describe('#writable', function(){
-		before(function(done){
+		before(function(){
 			var ctx = this;
 			ctx.topic = 'chronicon.test.write';
+			ctx.topicWrong = 'chronicon.test.write.not';
+		});
+
+		before(function(done){
+			var ctx = this;
+			r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
+				.catch(function(){return;})
+				.finally(function(){
+					return r.tableCreate(tableName(ctx.topicWrong)).run(ctx.connection);
+				})
+				.catch(function(){return;})
+				.finally(done)
+				.done();
+		});
+
+		before(function(done){
+			var ctx = this;
 			ctx.stream = ctx.chronicon.writable(ctx.topic);
-			ctx.amqpSpy = sinon.spy(function(msg){
-				ctx.channel.ack(msg);
-			});
-			ctx.channel.assertQueue('', {exclusive:true})
-			.then(function(q){
-				ctx.queue = q.queue;
-				return ctx.channel.bindQueue(ctx.queue, ctx.exchange, ctx.topic);
-			})
-			.then(function(){
-				ctx.channel.consume(ctx.queue, ctx.amqpSpy);
+			ctx.changeSpy = sinon.spy();
+			//r.table(tableName(ctx.topic)).changes().filter(r.row('old_val').eq(null)).run(ctx.connection, function(err, cursor){
+			r.table(tableName(ctx.topic)).changes().run(ctx.connection, function(err, cursor){
+				if(err){return done(err);}
+				ctx.changeCursor = cursor;
+				cursor.each(function(err, c){
+					/* jshint camelcase:false */
+					if(!err && c.old_val === null){
+						ctx.changeSpy(c.new_val);
+					}
+				});
 				done();
-			})
-			.catch(function(err){
-				done(err);
-			})
-			.done();
+			});
+		});
+		
+		beforeEach(function(done){
+			var ctx = this;
+			r.table(tableName(ctx.topic)).delete().run(ctx.connection, done);
 		});
 
 		beforeEach(function(){
 			var ctx = this;
-			ctx.amqpSpy.reset();
+			ctx.changeSpy.reset();
 		});
 
 		it('Returns a writable stream', function(){
@@ -171,7 +235,7 @@ describe('AMQP Store', function(){
 		it('Message broker does not publish any message when nothing is written to stream', function(done){
 			var ctx = this;
 			setTimeout(function(){
-				expect(ctx.amqpSpy).to.not.have.been.called;
+				expect(ctx.changeSpy).to.not.have.been.called;
 				done();
 			}, 1000);
 		});
@@ -192,9 +256,9 @@ describe('AMQP Store', function(){
 				}
 				//Wait 2 seconds then perform the checks
 				setTimeout(function(){
-					expect(ctx.amqpSpy).to.have.callCount(numEntries);
+					expect(ctx.changeSpy).to.have.callCount(numEntries);
 					(results || []).forEach(function(payload, index){
-						var message = JSON.parse(ctx.amqpSpy.args[index][0].content);
+						var message = ctx.changeSpy.args[index][0];
 						expect(message).to.have.property('sequenceNumber', index);
 						expect(message).to.have.property('testAttr', 'test');
 					});

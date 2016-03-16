@@ -6,6 +6,7 @@ var EventEmitter = require('events').EventEmitter;
 
 var stores = {
 	'amqp': require('./amqp'),
+	'rethinkdb': require('./rethinkdb')
 };
 
 module.exports = Chronicon;
@@ -43,7 +44,7 @@ Chronicon.prototype.connect = function(type, options){
 };
 
 Chronicon.prototype.read = function(topic){
-	return this.store.read(topic);
+	return this.store.read.apply(this.store, arguments);
 };
 
 Chronicon.prototype.writable = function(topic){

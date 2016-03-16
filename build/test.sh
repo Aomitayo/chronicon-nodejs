@@ -14,4 +14,4 @@ rethinkdb_port=$(cut -d ':' -f 2 <<< $rethinkdb_port)
 RETHINKDB_URL="rethinkdb://$host_ip:$rethinkdb_port"
 
 # run the tests
-AMQP_URL=$AMQP_URL RETHINDB_URL=$RETHINKDB_URL mocha -t 10000 test/specs/*
+AMQP_URL=$AMQP_URL RETHINKDB_URL=$RETHINKDB_URL mocha -t 10000 test/specs/*
