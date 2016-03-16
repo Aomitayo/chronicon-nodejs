@@ -47,7 +47,7 @@ Chronicon.prototype.read = function(topic){
 };
 
 Chronicon.prototype.writable = function(topic){
-	return this.store.getWritable(topic);
+	return this.store.writable(topic);
 };
 
 Chronicon.prototype.write = function(topic, payload){
