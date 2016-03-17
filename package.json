@@ -1,6 +1,6 @@
 {
   "name": "chronicon",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Nodejs bindings to the chronicon framework",
   "main": "src/index.js",
   "scripts": {
