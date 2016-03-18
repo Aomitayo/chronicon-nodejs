@@ -53,6 +53,7 @@ RethinkdbStore.prototype.read = function(topic){
 	}
 
 	var stream = new Readable({objectMode:true});
+	stream._topicConfirmed = false;
 	stream._read = function(){
 		if(!stream._isReading){
 			startReading();
@@ -62,6 +63,12 @@ RethinkdbStore.prototype.read = function(topic){
 	function startReading(){
 		if(!self._isReady){
 			return self.once('ready', startReading);
+		}
+		if(!stream._topicConfimed){
+			return self._ensureTable(RethinkdbStore.tableName(topic), function(){
+				stream._topicConfimed = true;
+				startReading();
+			});
 		}
 
 		r.table(RethinkdbStore.tableName(topic)).changes().run(self.connection, function(err, cursor){
@@ -88,6 +95,7 @@ RethinkdbStore.prototype.writable = function(topic){
 	var self = this;
 
 	var stream = new Writable({objectMode:true});
+	stream._topicConfirmed = false;
 	stream._write = function(payload, encoding, callback){
 		doWrite(payload, encoding, callback);
 	};
@@ -95,6 +103,12 @@ RethinkdbStore.prototype.writable = function(topic){
 	function doWrite (payload, encoding, callback){
 		if(!self._isReady){
 			return self.once('ready', doWrite.bind(null, payload, encoding, callback));
+		}
+		if(!stream._topicConfimed){
+			return self._ensureTable(RethinkdbStore.tableName(topic), function(){
+				stream._topicConfimed = true;
+				doWrite(payload, encoding, callback);
+			});
 		}
 		r.table(RethinkdbStore.tableName(topic)).insert(payload).run(self.connection, function(err){
 			callback(err);
@@ -106,6 +120,14 @@ RethinkdbStore.prototype.writable = function(topic){
 RethinkdbStore.prototype.write = function(topic, payload){
 	var self = this;
 	self.writable(topic).end(payload);
+};
+
+RethinkdbStore.prototype._ensureTable = function(tableName, cb){
+	var self = this;
+	return r.tableCreate(tableName).run(self.connection)
+	.catch(function(){})
+	.finally(cb)
+	.done();
 };
 
 RethinkdbStore.tableName = function(topic){
