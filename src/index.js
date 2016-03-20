@@ -5,8 +5,8 @@ var util = require('util');
 var EventEmitter = require('events').EventEmitter;
 
 var stores = {
-	'amqp': require('./amqp'),
-	'rethinkdb': require('./rethinkdb')
+	'amqp': require('./amqp-store'),
+	'rethinkdb': require('./rethinkdb-store')
 };
 
 module.exports = Chronicon;

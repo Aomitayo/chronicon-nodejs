@@ -18,6 +18,7 @@ function RethinkdbStore(options){
 	if(options){
 		self.connect(options);
 	}
+	self._confirmedTopics = {};
 
 }
 
@@ -53,7 +54,6 @@ RethinkdbStore.prototype.read = function(topic){
 	}
 
 	var stream = new Readable({objectMode:true});
-	stream._topicConfirmed = false;
 	stream._read = function(){
 		if(!stream._isReading){
 			startReading();
@@ -61,14 +61,14 @@ RethinkdbStore.prototype.read = function(topic){
 	};
 
 	function startReading(){
+		stream._isReading = true;
 		if(!self._isReady){
 			return self.once('ready', startReading);
 		}
-		if(!stream._topicConfimed){
-			return self._ensureTable(RethinkdbStore.tableName(topic), function(){
-				stream._topicConfimed = true;
-				startReading();
-			});
+		if(!self.isTopicConfirmed(topic)){
+			self.once('confirmed_topic_'+ topic, startReading.bind(null));
+			self.confirmTopic(topic, stream);
+			return;
 		}
 
 		r.table(RethinkdbStore.tableName(topic)).changes().run(self.connection, function(err, cursor){
@@ -86,7 +86,6 @@ RethinkdbStore.prototype.read = function(topic){
 				}
 			});
 		});		
-		stream._isReading = true;
 	}
 	return stream;
 };
@@ -95,7 +94,6 @@ RethinkdbStore.prototype.writable = function(topic){
 	var self = this;
 
 	var stream = new Writable({objectMode:true});
-	stream._topicConfirmed = false;
 	stream._write = function(payload, encoding, callback){
 		doWrite(payload, encoding, callback);
 	};
@@ -104,12 +102,12 @@ RethinkdbStore.prototype.writable = function(topic){
 		if(!self._isReady){
 			return self.once('ready', doWrite.bind(null, payload, encoding, callback));
 		}
-		if(!stream._topicConfimed){
-			return self._ensureTable(RethinkdbStore.tableName(topic), function(){
-				stream._topicConfimed = true;
-				doWrite(payload, encoding, callback);
-			});
+		if(!self.isTopicConfirmed(topic)){
+			self.once('confirmed_topic_'+ topic, doWrite.bind(null, payload, encoding, callback));
+			self.confirmTopic(topic, stream);
+			return;
 		}
+
 		r.table(RethinkdbStore.tableName(topic)).insert(payload).run(self.connection, function(err){
 			callback(err);
 		});
@@ -122,11 +120,31 @@ RethinkdbStore.prototype.write = function(topic, payload){
 	self.writable(topic).end(payload);
 };
 
-RethinkdbStore.prototype._ensureTable = function(tableName, cb){
+RethinkdbStore.prototype.isTopicConfirmed = function(topic){
+	return !! this._confirmedTopics[topic];
+};
+
+RethinkdbStore.prototype.confirmTopic = function(topic, emitter, cb){
 	var self = this;
+	var tableName = RethinkdbStore.tableName(topic);
+	if(!cb && typeof emitter === 'function'){
+		cb = emitter;
+		emitter = null;
+	}
+
 	return r.tableCreate(tableName).run(self.connection)
 	.catch(function(){})
-	.finally(cb)
+	.finally(function(){
+		self._confirmedTopics[topic] = topic;
+		self.emit('confirmed_topic', topic);
+		self.emit('confirmed_topic_'+ topic, topic);
+		if(emitter){
+			emitter.emit('confirmed_topic', topic);
+			emitter.emit('confirmed_topic_'+ topic, topic);
+		}
+		cb = cb || function(){};
+		cb();
+	})
 	.done();
 };
 

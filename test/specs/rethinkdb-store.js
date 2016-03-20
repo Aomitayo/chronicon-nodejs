@@ -27,6 +27,28 @@ describe('Rethinkdb Store', function(){
 			host: urlParts.hostname,
 			port: urlParts.port,
 		});
+		r.connect(ctx.rethinkdbOptions)
+		.then(function(conn){
+			ctx.connection = conn;
+		})
+		.then(function(){
+			return r.dbDrop(ctx.rethinkdbOptions.db).run(ctx.connection)
+				.catch(function(){});
+		})
+		.then(function(){
+			return r.dbCreate(ctx.rethinkdbOptions.db).run(ctx.connection)
+				.catch(function(){});
+		})
+		.then(function(){
+			return done();
+		})
+		.catch(function(err){
+			return done(err);
+		});
+	});
+	
+	before(function(done){
+		var ctx = this;
 		ctx.chronicon  = new Chronicon('rethinkdb', ctx.rethinkdbOptions);
 		if(ctx.chronicon.isReady){
 			done();
@@ -36,30 +58,6 @@ describe('Rethinkdb Store', function(){
 				done();
 			});
 		}
-	});
-	
-	before(function(done){
-		var ctx = this;
-		r.connect(ctx.rethinkdbOptions)
-		.then(function(conn){
-			ctx.connection = conn;
-		})
-		.then(function(){
-			return r.dbCreate(ctx.rethinkdbOptions.db).run(ctx.connection)
-				.catch(function(){
-					return;
-				});
-		})
-		.then(function(){
-			return r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
-				.catch(function(){return;});
-		})
-		.then(function(){
-			return done();
-		})
-		.catch(function(err){
-			return done(err);
-		});
 	});
 	
 	after(function(done){
@@ -75,29 +73,29 @@ describe('Rethinkdb Store', function(){
 			ctx.topic = 'chronicon.test.read';
 			ctx.topicWrong = 'chronicon.test.read.not';
 		});
-
+		
 		before(function(done){
 			var ctx = this;
-			r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
-				.catch(function(){return;})
-				.finally(function(){
-					return r.tableCreate(tableName(ctx.topicWrong)).run(ctx.connection);
-				})
+			r.tableCreate(tableName(ctx.topicWrong)).run(ctx.connection)
 				.catch(function(){return;})
 				.finally(done)
 				.done();
 		});
-
-		before(function(){
+		
+		before(function(done){
 			var ctx = this;
 			ctx.stream = ctx.chronicon.read(ctx.topic);
+			ctx.stream.on('confirmed_topic_'+ ctx.topic, done.bind(null, null));
 			ctx.streamSpy = sinon.spy();
 			ctx.stream.on('data', ctx.streamSpy);
 		});
 		
 		beforeEach(function(done){
 			var ctx = this;
-			r.table(tableName(ctx.topic)).delete().run(ctx.connection, done);
+			r.table(tableName(ctx.topic)).delete()
+				.run(ctx.connection)
+				.catch(function(){})
+				.finally(done);
 		});
 
 		beforeEach(function(){
@@ -186,19 +184,15 @@ describe('Rethinkdb Store', function(){
 			ctx.topic = 'chronicon.test.write';
 			ctx.topicWrong = 'chronicon.test.write.not';
 		});
-
+		
 		before(function(done){
 			var ctx = this;
 			r.tableCreate(tableName(ctx.topic)).run(ctx.connection)
 				.catch(function(){return;})
-				.finally(function(){
-					return r.tableCreate(tableName(ctx.topicWrong)).run(ctx.connection);
-				})
-				.catch(function(){return;})
 				.finally(done)
 				.done();
 		});
-
+		
 		before(function(done){
 			var ctx = this;
 			ctx.stream = ctx.chronicon.writable(ctx.topic);
