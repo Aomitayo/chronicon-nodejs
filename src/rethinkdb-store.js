@@ -36,12 +36,13 @@ RethinkdbStore.prototype.connect = function(options){
 			self.connection = conn;
 		})
 		.then(function(){
-			return r.dbDrop(options.db).run(self.connection)
-				.catch(function(){});
+			return r.dbList().contains(options.db).run(self.connection);
 		})
-		.then(function(){
-			return r.dbCreate(options.db).run(self.connection)
-				.catch(function(){});
+		.then(function(dbExists){
+			if(!dbExists){
+				return r.dbCreate(options.db).run(self.connection)
+					.catch(function(){});
+			}
 		})
 		.then(function(){
 			self._isReady = true;
