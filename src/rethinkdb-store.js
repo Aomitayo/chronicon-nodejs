@@ -36,6 +36,14 @@ RethinkdbStore.prototype.connect = function(options){
 			self.connection = conn;
 		})
 		.then(function(){
+			return r.dbDrop(options.db).run(self.connection)
+				.catch(function(){});
+		})
+		.then(function(){
+			return r.dbCreate(options.db).run(self.connection)
+				.catch(function(){});
+		})
+		.then(function(){
 			self._isReady = true;
 			self.emit('ready');
 		})
@@ -78,7 +86,7 @@ RethinkdbStore.prototype.read = function(topic){
 
 			cursor.each(function(err, c){
 				if(err){
-					return stream.emit('error');
+					return stream.emit('error', err);
 				}
 				/* jshint camelcase:false */
 				if(!c.old_val){
